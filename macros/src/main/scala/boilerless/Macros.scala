@@ -163,7 +163,7 @@ class Macros(val c: whitebox.Context) {
                   
                   val named = ts.map (_ name) toSet;
                   
-                  val (vars, targs) = (typs map {
+                  val (variance_bounds, targs) = (typs map {
                     case TypeDef(m, n, tp, rhs) =>
                       if (tp.nonEmpty) c.warning(tp.head.pos, "Higher kinded type support has not been tested.")
         
@@ -175,7 +175,7 @@ class Macros(val c: whitebox.Context) {
                         case _ => (None, None)
                       }
         
-                      (n -> (lo,hi)) -> (
+                      (n -> (variance, lo, hi)) -> (
                         if (named(n)) tq"$n"
                         else (lo,hi,variance) match {
                           case (Some(lo), _, Some(true)) => lo
@@ -194,8 +194,12 @@ class Macros(val c: whitebox.Context) {
                   
                   val typs1 = ts map {
                     case td @ TypeDef(m, n, tp, rhs) =>
-                      vars get n map {
-                        case (lo,hi) => TypeDef(m, n, tp, TypeBoundsTree(lo getOrElse EmptyTree, hi getOrElse EmptyTree))
+                      variance_bounds get n map {
+                        case (v,lo,hi) => TypeDef(mapFlags(m)(_ | (v match {
+                          case Some(true) => COVARIANT
+                          case Some(false) => CONTRAVARIANT
+                          case None => NoFlags
+                        })), n, tp, TypeBoundsTree(lo getOrElse EmptyTree, hi getOrElse EmptyTree))
                       } getOrElse td
                   }
                   typs1 -> targs

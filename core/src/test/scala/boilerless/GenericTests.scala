@@ -71,8 +71,8 @@ class GenericTests extends FunSuite {
       
       // TODO
       class ConstInt(value: Int){$[Int]}
-      class Abs[A,B](fun: A => B){$[A => B]}
-      class App[A,B](fun: Expr[A => B], arg: A){$[B]}
+      class Abs[F,T](fun: F => T){$[F => T]}
+      class App[F,T](fun: Expr[F => T], arg: F){$[T]}
       
       
     }
@@ -134,7 +134,7 @@ class GenericTests extends FunSuite {
   test("Propagated and Refined Bounds") {
     
     @enum class Enum[+S <: Seq[Any], -T >: List[Nothing]] {
-      class A[S,T](s: S, t: T)
+      class A[S,T](ts: T => S)
       class B[S, T, U /*>: T*/ <: S](u: U)
       class B2[_, U /*>: T*/ <: S](u: U)
       class C[S, T, U >: T /*<: S*/](u: U)

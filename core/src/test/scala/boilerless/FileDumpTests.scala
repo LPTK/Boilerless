@@ -11,12 +11,16 @@ class FileDumpTests extends FunSuite {
     typed[Opt[Nothing]](Opt.Non)
     typed[Opt[Int]](Opt.Non)
     typed[Opt[Int]](Opt.Som(42))
+    
+    typed[Opt.Som[Any]](Opt.Som[Int](42))
   }
   
   test("Opt2") {
     typed[Opt2[Nothing]](Opt2.Non)
     typed[Opt2[Int]](Opt2.Non)
     typed[Opt2[Int]](Opt2.Som(42))
+    
+    typed[Opt2.Som[Any]](Opt2.Som[Int](42))
   }
   
   test("Misc") {
