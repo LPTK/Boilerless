@@ -120,7 +120,7 @@ class GenericTests extends FunSuite {
   test("Inferred Existential Type Argument") {
     
     @enum class Enum[A] {
-      class Case0
+      @options('NotInterested) class Case0
       object Case1
     }
     typed[ Enum[_] ]{ Enum.Case0() }

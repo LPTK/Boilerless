@@ -18,7 +18,7 @@ object Templates {
   
   @enumInFile("core/src/test/scala/boilerless/gen", "boilerless.gen")
   @open @concrete class Misc {
-    @notCase @open abstract class ExtensibleCase
+    @notCase @open abstract class ExtensibleCase(x: Unit)
     @ignore class MemberClass { def foo = 42 }
   }
   

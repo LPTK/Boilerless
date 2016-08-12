@@ -24,10 +24,10 @@ class BasicTests extends FunSuite {
   test("Nested") {
     
     
-    @enum class Level0(x: Int) {
+    @enum('NotInterested) class Level0(x: Int) {
       val z = x
       
-      class Sub0{0}
+      class Sub0(){0}
       class Sub1(x: Int){x}
       
       @enum class Level1(x: Int) { _(x)

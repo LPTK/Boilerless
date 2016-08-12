@@ -2,7 +2,7 @@ package boilerless
 
 import org.scalatest.FunSuite
 
-class GenTests extends FunSuite {
+class FileDumpTests extends FunSuite {
   import gen._
   
   def typed[T](x: T) = x
@@ -24,7 +24,7 @@ class GenTests extends FunSuite {
     val m = new Misc
     assert(new m.MemberClass().foo == 42)
     
-    case class IDareYou() extends Misc.ExtensibleCase
+    case class IDareYou() extends Misc.ExtensibleCase(())
     
     class M extends Misc
     

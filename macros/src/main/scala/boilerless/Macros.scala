@@ -3,25 +3,18 @@ package boilerless
 import scala.annotation.tailrec
 import scala.reflect.macros.whitebox
 
-/*
-  * TODO warn class no params
-  * 
-  * TODO debug versions
-  * 
+ /*
   * TODO prevent case traits -- convert to bare classes?
   * 
-  * TODO impl 'Ignore
-  * TODO make case options ('Ignore, 'NotFinal) annotations...
-  * 
-  * TODO add overriding to implicitly overriding vals?
+  * TODO add `override` to implicitly overriding vals?
   * 
   */
 class Macros(val c: whitebox.Context) {
   import c.universe._
   import Flag._
   
-  case class Params(debug: Boolean, unsealed: Boolean, notFinal: Boolean)
-  val DefaultParams = Params(false, false, false)
+  case class Params(debug: Boolean, unsealed: Boolean, notFinal: Boolean, interestedInWarnings: Boolean)
+  val DefaultParams = Params(false, false, false, true)
   
   def getParams(args: Seq[Tree], scope: scala.Symbol) = {
     def globScp = scope == 'Global
@@ -29,6 +22,7 @@ class Macros(val c: whitebox.Context) {
     (DefaultParams /: args) {
       case (ps, q"'Debug") if globScp => ps.copy(debug = true)
       case (ps, q"'Unsealed") if globScp => ps.copy(unsealed = true)
+      case (ps, q"'NotInterested") => ps.copy(interestedInWarnings = false)
       case (ps, q"'NotFinal") if caseScp => ps.copy(notFinal = true)
       case (ps, a) => c.abort(a.pos, "Unrecognized parameter: "+showCode(a))
     }
@@ -87,12 +81,21 @@ class Macros(val c: whitebox.Context) {
             case d => Left(d)
           }).partition(_.isLeft) match { case(as,bs) => as.map(_.fold(identity,_ => ???)) -> bs.map(_.fold(_ => ???,identity)) }
           
+          
           val extractedClasses = movedDefs map {
-            case (mods0, name0, typs0, Template(parents, self, body)) =>
+            case (mods0, name0, typs0, tmp @ Template(parents, self, body)) =>
               
               val caseParams = mods0.annotations collectFirst {
                 case q"new options(...$args)" => getParams(args.flatten, 'Case)
               } getOrElse DefaultParams
+              
+              // Warn if the class could be an object:
+              if (params.interestedInWarnings && caseParams.interestedInWarnings && !mods0.hasFlag(ABSTRACT)) typs0 foreach { ts =>
+                if (ts.isEmpty) {
+                  val clsParams = body collect { case d: MemberDef if d.mods.hasFlag(PARAMACCESSOR) => d }
+                  if (clsParams.isEmpty) c.warning(tmp.pos, "Parameter-less class could be an object.")
+                }
+              }
               
               val isObject = typs0.isEmpty
               

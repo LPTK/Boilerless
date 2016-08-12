@@ -11,6 +11,6 @@ import boilerless._
 }
 
 object Misc {
-  @notCase @open final abstract case class ExtensibleCase() extends Misc
+  @notCase @open final abstract case class ExtensibleCase(x: Unit) extends Misc
 }
 
