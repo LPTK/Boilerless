@@ -35,6 +35,8 @@ class GenericTests extends FunSuite {
     typed[Either[Int,Int]](Left(42))
     typed[Either[Int,Int]](Right(42))
     
+    typed[Either[Any,Any]](Right[Int](42))
+    
   }
   
   
