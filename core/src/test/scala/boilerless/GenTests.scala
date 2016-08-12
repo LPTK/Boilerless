@@ -19,5 +19,16 @@ class GenTests extends FunSuite {
     typed[Opt2[Int]](Opt2.Som(42))
   }
   
+  test("Misc") {
+    
+    val m = new Misc
+    assert(new m.MemberClass().foo == 42)
+    
+    case class IDareYou() extends Misc.ExtensibleCase
+    
+    class M extends Misc
+    
+  }
+  
 }
 

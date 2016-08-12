@@ -20,8 +20,8 @@ class Macros(val c: whitebox.Context) {
   import c.universe._
   import Flag._
   
-  case class Params(debug: Boolean, unsealed: Boolean, notFinal: Boolean, ignore: Boolean)
-  val DefaultParams = Params(false, false, false, false)
+  case class Params(debug: Boolean, unsealed: Boolean, notFinal: Boolean)
+  val DefaultParams = Params(false, false, false)
   
   def getParams(args: Seq[Tree], scope: scala.Symbol) = {
     def globScp = scope == 'Global
@@ -30,7 +30,6 @@ class Macros(val c: whitebox.Context) {
       case (ps, q"'Debug") if globScp => ps.copy(debug = true)
       case (ps, q"'Unsealed") if globScp => ps.copy(unsealed = true)
       case (ps, q"'NotFinal") if caseScp => ps.copy(notFinal = true)
-      case (ps, q"'Ignore") if caseScp => ps.copy(ignore = true)
       case (ps, a) => c.abort(a.pos, "Unrecognized parameter: "+showCode(a))
     }
   }
@@ -39,6 +38,7 @@ class Macros(val c: whitebox.Context) {
     case q"new enumeratum(...$args).macroTransform(..$_)" => args.flatten
     case q"new enumInFile($folder, $pckg)(...$args).macroTransform(..$_)" => args.flatten
     case q"$_.enumInFile($_, $_, $_)(..$args)($_)" => args
+    case app => /*c.warning(app.pos, "Could not find parameters for this macro application.");*/ Nil
   }, 'Global)
   
   def debug(x: => Any, xs: Any*) { if (params.debug) println(x +: xs mkString " ") }
@@ -46,6 +46,9 @@ class Macros(val c: whitebox.Context) {
   
   def rmFlagsIn(from: FlagSet, rm: FlagSet): FlagSet = (from.asInstanceOf[Long] & ~rm.asInstanceOf[Long]).asInstanceOf[FlagSet]
   def mkPublic(fs: FlagSet): FlagSet = rmFlagsIn(fs, PRIVATE | PROTECTED | LOCAL)
+  def mapFlags(m: Modifiers)(f: FlagSet => FlagSet) = Modifiers(f(m.flags), m.privateWithin, m.annotations)
+  
+  def isIgnore: Tree => Boolean = { case q"new ignore()" => true  case _ => false }
   
   
   def impl(annottees: Tree*): Tree = {
@@ -67,9 +70,20 @@ class Macros(val c: whitebox.Context) {
             case multi => c.warning(temp.pos, s"Several constructors detected for $name. Picking the first one (YOLO)."); multi.head
           }*/
           
+          def rmIgnore(m: Modifiers) = Modifiers(m.flags, m.privateWithin, m.annotations.indexWhere(isIgnore) match {
+            case -1 => m.annotations
+            case i => m.annotations.patch(i, Nil, 1) // leaves further @ignore annotations, possibly used later
+          })
+          
           val (otherDefs, movedDefs) = (temp.body map {
-            case ModuleDef(mods0, name0, temp0) => Right(mods0, name0.toTypeName, None, temp0)
-            case ClassDef(mods0, name0, typs0, temp0) => Right(mods0, name0, Some(typs0), temp0)
+            case ModuleDef(mods0, name0, temp0) =>
+              if (mods0.annotations.exists(isIgnore))
+                   Left(ModuleDef(rmIgnore(mods0), name0, temp0))
+              else Right(mods0, name0.toTypeName, None, temp0)
+            case ClassDef(mods0, name0, typs0, temp0) =>
+              if (mods0.annotations.exists(isIgnore))
+                   Left(ClassDef(rmIgnore(mods0), name0, typs0, temp0))
+              else Right(mods0, name0, Some(typs0), temp0)
             case d => Left(d)
           }).partition(_.isLeft) match { case(as,bs) => as.map(_.fold(identity,_ => ???)) -> bs.map(_.fold(_ => ???,identity)) }
           
@@ -218,7 +232,7 @@ class Macros(val c: whitebox.Context) {
               mods.flags
                 | (if (params.unsealed) NoFlags else SEALED)
                 | ABSTRACT, 
-              CASE), mods.privateWithin, mods.annotations)
+              CASE | FINAL), mods.privateWithin, mods.annotations)
           
           val cls = ClassDef(newMods, name, typs, Template(temp.parents, temp.self, otherDefs))
           
@@ -319,6 +333,7 @@ ${showCode(obj)}
     
   }
   
+  
   def defEnumInFileImpl(className: Tree, folderName: Tree, packageName: Tree)(args: Tree*)(code: Tree) = {
     (className, folderName, packageName, code) match {
       case (LitString(className), LitString(folderName), LitString(packageName), LitString(code)) =>
@@ -330,6 +345,39 @@ ${showCode(obj)}
         }
     }
   }
+  
+  
+  def annotIntoParam(annottees: Tree*) = {
+    c.macroApplication match {
+        
+      case q"new open().macroTransform(..$_)" =>
+        def mk(m: Modifiers) = mapFlags(m)(rmFlagsIn(_, FINAL | SEALED))
+        q"${annottees.head match {
+          case ClassDef(mods, name, tparams, impl) => ClassDef(mk(mods), name, tparams, impl)
+          case ValDef(m, n, t, v) => ValDef(mk(m), n, t, v)
+          case DefDef(m, n, tp, ass, t, v) => DefDef(mk(m), n, tp, ass, t, v)
+          case x => c.abort(x.pos, "Cannot make this not final: "+showCode(x))
+        }}; ..${annottees.tail}"
+        
+      case q"new concrete().macroTransform(..$_)" =>
+        def mk(m: Modifiers) = mapFlags(m)(rmFlagsIn(_, ABSTRACT))
+        q"${annottees.head match {
+          case ClassDef(mods, name, tparams, impl) => ClassDef(mk(mods), name, tparams, impl)
+          case ValDef(m, n, t, v) => ValDef(mk(m), n, t, v)
+          case DefDef(m, n, tp, ass, t, v) => DefDef(mk(m), n, tp, ass, t, v)
+          case x => c.abort(x.pos, "Cannot make this concrete (not abstract): "+showCode(x))
+        }}; ..${annottees.tail}"
+        
+      case q"new notCase().macroTransform(..$_)" =>
+        q"${annottees.head match {
+          case ClassDef(mods, name, tparams, impl) => ClassDef(mapFlags(mods)(rmFlagsIn(_, CASE)), name, tparams, impl)
+          case x => c.abort(x.pos, "Cannot make this not a case definition: "+showCode(x))
+        }}; ..${annottees.tail}"
+        
+    }
+  }
+  
+  
   
   
   object LitString {

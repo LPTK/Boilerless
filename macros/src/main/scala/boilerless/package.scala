@@ -7,9 +7,6 @@ import scala.annotation.{StaticAnnotation, compileTimeOnly}
 /** Macros used to define @enum classes. */
 package object boilerless {
   
-  /** To annotate each case class/object with custom options */
-  class options(args: Any*) extends StaticAnnotation
-  
   @compileTimeOnly("Enable macro paradise to expand macro annotations.")
   class enum(args: Any*) extends StaticAnnotation {
     def macroTransform(annottees: Any*): Any = macro Macros.impl
@@ -25,6 +22,23 @@ package object boilerless {
   }
   
   def enumInFile(className: String, folderName: String, packageName: String)(args: Any*)(code: String): Unit = macro Macros.defEnumInFileImpl
+  
+  
+  
+  
+  /** To annotate each case class/object with custom options */
+  class options(args: Any*) extends StaticAnnotation
+  
+  @compileTimeOnly("Enable macro paradise to expand macro annotations.")
+  class open extends StaticAnnotation { def macroTransform(annottees: Any*): Any = macro Macros.annotIntoParam }
+  @compileTimeOnly("Enable macro paradise to expand macro annotations.")
+  class concrete extends StaticAnnotation { def macroTransform(annottees: Any*): Any = macro Macros.annotIntoParam }
+  @compileTimeOnly("Enable macro paradise to expand macro annotations.")
+  class notCase extends StaticAnnotation { def macroTransform(annottees: Any*): Any = macro Macros.annotIntoParam }
+  
+  class ignore extends StaticAnnotation
+  
+  //class `private` extends StaticAnnotation
   
   
 }

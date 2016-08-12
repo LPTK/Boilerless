@@ -2,6 +2,7 @@
 
 package boilerless.gen
 
+import boilerless._
 
 sealed abstract class Opt[+T]
 
