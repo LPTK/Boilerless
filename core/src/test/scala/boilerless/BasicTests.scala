@@ -4,6 +4,30 @@ import org.scalatest.FunSuite
 
 class BasicTests extends FunSuite {
   
+  test("Enum with def and val") {
+    
+    @enum class Enum[A] {
+      def foo(a: A): A
+      val n: Int
+      
+      object X       { _[Int];    foo(a) = a;    n = 0 }
+      object A       { _[Int];    foo(a) = 0;    n = 1 }
+      
+      class Y(x: Int){ _[String]; foo(a) = a;    n = x }
+      class B(x: Int){ _[String]; foo(a) = "ok"; n = 3 }
+    }
+    import Enum._
+    
+    assert(X.n == 0)
+    assert(Y(2).n == 2)
+    
+    assert(A.foo(42) == 0)
+    assert(Y(0).foo("ko") == "ko")
+    assert(B(0).foo("ko") == "ok")
+    
+  }
+  
+  
   test("Unsealed and NotFinal") {
     
     import Models._
@@ -22,7 +46,6 @@ class BasicTests extends FunSuite {
   
   
   test("Nested") {
-    
     
     @enum('NotInterested) class Level0(x: Int) {
       val z = x
@@ -44,5 +67,20 @@ class BasicTests extends FunSuite {
   }
   
   
+  test("Concrete Abstract Trick") {
+    
+    @enum class Enum {
+      @concrete abstract def f = 0
+      object A { f = 1 }
+      object B
+    }
+    assert(Enum.A.f == 1 && Enum.B.f == 0)
+    
+  }
+  
   
 }
+
+
+
+

@@ -2,7 +2,8 @@ import scala.language.experimental.macros
 import scala.annotation.{StaticAnnotation, compileTimeOnly}
 
 /*
-  TODO: make `enumeratum` an option and allow it in enumInFile  
+  TODO: make `enumeratum` an option and allow it in enumInFile
+  TODO: make an option to generate the other type of `enumeratum` Enum's
 */
 /** Macros used to define @enum classes. */
 package object boilerless {

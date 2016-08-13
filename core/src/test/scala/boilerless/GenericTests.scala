@@ -43,42 +43,40 @@ class GenericTests extends FunSuite {
   test("EitherOrBoth") {
     
     @enum class EitherOrBoth[+A,+B] {
-      //def fold[T](f: A => T, g: B => T): Either[T, (T,T)]
-      class Left[A](value: A) //{ fold(f,g) = f(value) } // TODO 
-      class Right[B](value: B)
-      class Both[_](left: A, right: B)
+      def fold[T](f: A => T, g: B => T): Either[T, (T,T)]
+
+      // Cases:
+      class First[A](value: A)      {  fold(f,g) = Left( f(value)        )  }
+      class Second[B](value: B)     {  fold(f,g) = Left(         g(value))  }
+      class Both[_](fst: A, snd: B) {  fold(f,g) = Right(f(fst), g(snd)  )  }
     }
     import EitherOrBoth._
     
-    
+    assert(First(42).fold(identity, _ => ???) == Left(42))
+    assert(Second("ok").fold(_ => ???, identity) == Left("ok"))
+    assert(Both(42, "ok").fold(identity, identity) == Right(42, "ok"))
     
   }
   
   
   test("GADT") {
     
-    @enum class Expr[+A] {
-      //class AnyConst(value: A) extends ConstInt(value)
-      //trait ConstInt(value: Int) extends Expr[Int]
-      
-      //class AnyConst2[_](value: A) extends Expr[A]
+    @enum trait Expr[+A] {
       
       class AnyConst[_](value: A)
       
-      //class ConstInt(value: Int) extends Expr[Int]
-      //class Abs[A,B](fun: A => B) extends Expr[A => B]
-      //class App[A,B](fun: Expr[A => B], arg: A) extends Expr[A => B]
+      class ConstInt(value: Int)  { _[Int]    }
+      class Abs[F,T](fun: F => T) { _[F => T] }
+      class App[F,T](fun: Expr[F => T], arg: F) { _[T] }
       
-      // TODO
-      class ConstInt(value: Int){$[Int]}
-      class Abs[F,T](fun: F => T){$[F => T]}
-      class App[F,T](fun: Expr[F => T], arg: F){$[T]}
-      
+      // The kind of things you don't want to do, but heh:
+      @open @notCase abstract class AnyConst2[_](value: A)
+      class ConstInt2(intValue: Int) extends AnyConst2(intValue) with Expr[Int]
       
     }
     import Expr._
     
-    
+    assert(ConstInt2(42).value == 42)
     
   }
   
@@ -87,11 +85,14 @@ class GenericTests extends FunSuite {
     
     {
       @enum class Functions[-A,+B](val fun: A => B) {
-        class IntFun(value: Int => Int) extends Functions[Int,Int](value)
-        class IntFun2(value: Int => Int){ _[Int,Int](value) }
-        object Inc{ _((x: Int) => x+1) }
-        object Throws{ _((x: Any) => ???) }
-        object Rejects{ _[Nothing,Any](x => x) }
+        
+        class IntFun (value: Int => Int) extends Functions[Int,Int](value)
+        class IntFun2 (value: Int => Int)              { _[Int,Int](value) }
+        
+        object Inc     { _((x: Int) => x+1) }
+        object Throws  { _((x: Any) => ???) }
+        object Rejects { _[Nothing,Any](x => x) }
+        
       }
       import Functions._
       
@@ -106,8 +107,8 @@ class GenericTests extends FunSuite {
         
         // Cases:
         abstract class IntFun { _[Int,Int] }
-        class Throws[A] { def fun = x => ??? }
-        class Rejects[B] { def fun = x => ??? }
+        class Throws[A]  { fun = x => ??? }
+        class Rejects[B] { fun = x => ??? }
       }
       import ~>._
       

@@ -8,6 +8,8 @@ import scala.reflect.macros.whitebox
   * 
   * TODO add `override` to implicitly overriding vals?
   * 
+  * Note about the init syntax: neither `this[..](...)` nor `super[..](...)` are valid syntax.
+  * 
   */
 class Macros(val c: whitebox.Context) {
   import c.universe._
@@ -52,24 +54,36 @@ class Macros(val c: whitebox.Context) {
           
         case (md: ModuleDef) :: Nil => c.abort(md.pos, "Expected a class definition here.")
           
-        case ClassDef(mods, name, typs, temp) :: rest => // TODO handle rest
+        case ClassDef(baseMods, baseName, baseTParams, baseImpl) :: rest =>
           
           /*// TODO: use?
-          val paramss = temp.body flatMap {
-            case DefDef(mods, termNames.CONSTRUCTOR, tparams, vparamss, tpt, rhs) => Some(v)
+          val paramss = baseImpl.body flatMap {
+            case DefDef(baseMods, termNames.CONSTRUCTOR, tparams, vparamss, tpt, rhs) => Some(v)
             case _ => None
           } match {
             case Nil => Nil
             case argss :: Nil => argss
-            case multi => c.warning(temp.pos, s"Several constructors detected for $name. Picking the first one (YOLO)."); multi.head
+            case multi => c.warning(baseImpl.pos, s"Several constructors detected for $baseName. Picking the first one (YOLO)."); multi.head
           }*/
+          
+          // Maps abstract definition names to the definitions themselves or None if they are overloaded
+          val absDefs = baseImpl.body flatMap {
+            case d @ DefDef(m, name, tparams, vparamss, tpt, rhs) if (m hasFlag ABSTRACT) || rhs.isEmpty => Some(name -> d)
+            case d @ ValDef(m, name, tpt, rhs) if (m hasFlag ABSTRACT) || rhs.isEmpty =>  Some(name -> d)
+            case _ => None
+          } groupBy (_._1) map {
+            case (name, (_, d) :: Nil) => name -> Some(d)
+            case (name, _) => name -> None
+          }
+          //debug("Found abstract defs: "+absDefs)
+          
           
           def rmIgnore(m: Modifiers) = Modifiers(m.flags, m.privateWithin, m.annotations.indexWhere(isIgnore) match {
             case -1 => m.annotations
-            case i => m.annotations.patch(i, Nil, 1) // leaves further @ignore annotations, possibly used later
+            case i => m.annotations.patch(i, Nil, 1) // leaves further @ignore annotations, possibly used later (who knows?)
           })
           
-          val (otherDefs, movedDefs) = (temp.body map {
+          val (otherDefs, movedDefs) = (baseImpl.body map {
             case ModuleDef(mods0, name0, temp0) =>
               if (mods0.annotations.exists(isIgnore))
                    Left(ModuleDef(rmIgnore(mods0), name0, temp0))
@@ -83,21 +97,23 @@ class Macros(val c: whitebox.Context) {
           
           
           val extractedClasses = movedDefs map {
-            case (mods0, name0, typs0, tmp @ Template(parents, self, body)) =>
+            case (mods, name, tparams, impl @ Template(parents, self, body)) =>
               
-              val caseParams = mods0.annotations collectFirst {
+              val caseParams = mods.annotations collectFirst {
                 case q"new options(...$args)" => getParams(args.flatten, 'Case)
               } getOrElse DefaultParams
               
+              val doWarn  = params.interestedInWarnings && caseParams.interestedInWarnings
+              
               // Warn if the class could be an object:
-              if (params.interestedInWarnings && caseParams.interestedInWarnings && !mods0.hasFlag(ABSTRACT)) typs0 foreach { ts =>
+              if (doWarn && !mods.hasFlag(ABSTRACT)) tparams foreach { ts =>
                 if (ts.isEmpty) {
                   val clsParams = body collect { case d: MemberDef if d.mods.hasFlag(PARAMACCESSOR) => d }
-                  if (clsParams.isEmpty) c.warning(tmp.pos, "Parameter-less class could be an object.")
+                  if (clsParams.isEmpty) c.warning(impl.pos, "Parameter-less class could be an object.")
                 }
               }
               
-              val isObject = typs0.isEmpty
+              val isObject = tparams.isEmpty
               
               //debug(parents map (p => showRaw(p)))
               
@@ -108,17 +124,24 @@ class Macros(val c: whitebox.Context) {
               newParents ::= tq"scala.Serializable"
               newParents ::= tq"scala.Product"
               
-              newParents = newParents.reverse // puts potential extended class back to first position
+              newParents = newParents.reverse // puts potential extended _class_ back to first position
               
               val explicitExtends = newParents collectFirst {
-                case Ident(`name`) =>
-                case q"${`name`}(...$argss)" =>
-                case q"${AppliedTypeTree(Ident(`name`), targs)}(...$argss)" =>
-                case AppliedTypeTree(Ident(`name`), targs) =>
+                case Ident(`baseName`) =>
+                case q"${`baseName`}(...$argss)" =>
+                case q"${AppliedTypeTree(Ident(`baseName`), targs)}(...$argss)" =>
+                case AppliedTypeTree(Ident(`baseName`), targs) =>
               } isDefined;
               
-              val (typs1, newBody) = if (explicitExtends) {
-                val r = typs0 getOrElse Nil
+              val expandedTParams = tparams match {
+                case Some(TypeDef(_, TypeName("_"), Nil, rhs) :: rest) => baseTParams ::: rest
+                case Some(ts) => ts
+                case None => Nil
+              }
+              val expandedTParamName = expandedTParams.map (_ name) toSet;
+              
+              val (newTParams, newBody) = if (explicitExtends) {
+                val r = tparams getOrElse Nil
                 r foreach {
                   case td @ TypeDef(_, TypeName("_"), Nil, rhs) =>
                     c.warning(td.pos, "Type parameter forwarding is not active if the parent class is extended explicitly.")
@@ -127,43 +150,33 @@ class Macros(val c: whitebox.Context) {
                 r -> body
               } else {
                 
-                val ((initTargs, initArgss), newBody) = {
-                  @tailrec def rec(initExpr: Option[Tree], acc: List[Tree])(defs: List[Tree]): (Option[Tree], List[Tree]) = defs match {
-                    case (d: DefTree) :: xs if d.name == termNames.CONSTRUCTOR => rec(initExpr, d :: acc)(xs)
-                    case (d: ValDef) :: xs if d.mods.hasFlag(PARAMACCESSOR) => rec(initExpr, d :: acc)(xs)
-                    case (d: MemberDef) :: xs if d.mods.hasFlag(SYNTHETIC) => rec(initExpr, d :: acc)(xs)
-                    case (e @ q"super.${termNames.CONSTRUCTOR}[..$_](...$_)") :: xs => rec(initExpr, e :: acc)(xs)
-                    case e :: xs if e isTerm  => rec(Some(e), acc)(xs)
-                    //case d :: rest => rec(acc)(rest, canBeArgss)
-                    case rest => 
-                      //println("RETURN",initExpr,acc.reverse,rest)
-                      //println("RETURN",rest.headOption,rest.headOption.map(_.getClass))//.asInstanceOf[MemberDef].mods)
-                      (initExpr, acc.reverse ++ rest)
+                val ((explicitTArgs, initArgss), newBody) = {
+                  @tailrec def rec(acc: List[Tree])(defs: List[Tree]): (Option[Tree], List[Tree]) = defs match {
+                    case (d: DefTree) :: xs if d.name == termNames.CONSTRUCTOR => rec(d :: acc)(xs)
+                    case (d: ValDef) :: xs if d.mods.hasFlag(PARAMACCESSOR) => rec(d :: acc)(xs)
+                    case (d: MemberDef) :: xs if d.mods.hasFlag(SYNTHETIC) => rec(d :: acc)(xs)
+                    case (e @ q"super.${termNames.CONSTRUCTOR}[..$_](...$_)") :: xs => rec(e :: acc)(xs)
+                    case e :: xs if (e isTerm) && (e match { case q"$_ = $_" => false  case _ => true }) =>  // We don't want to misinterpret lightweight def implems
+                      (Some(e), acc.reverse ++ xs)
+                    case xs => (None, acc.reverse ++ xs)
                   }
-                  val (init, newBody) = rec(None, Nil)(body)
+                  val (init, newBody) = rec(Nil)(body)
                   
                   //debug(init, newBody)
                   
                   (init match {
                     case Some(q"__") => None -> Nil
                     case Some(q"_[..$ts](...$as)") => Some(ts) -> as
+                    case Some(q"$$") => None -> Nil
                     case Some(q"$$[..$ts](...$as)") => Some(ts) -> as
                     case Some(e) => None -> ((e :: Nil) :: Nil)
                     case _ => None -> Nil
                   }) -> newBody
                 }
                 
-                val (typs1, targs) = {
+                val (modTParams, initTArgs) = {
                   
-                  val ts = typs0 match {
-                    case Some(TypeDef(_, TypeName("_"), Nil, rhs) :: rest) => typs ::: rest
-                    case Some(ts) => ts
-                    case None => Nil
-                  }
-                  
-                  val named = ts.map (_ name) toSet;
-                  
-                  val (variance_bounds, targs) = (typs map {
+                  val (variance_bounds, inferredTArgs) = (baseTParams map {
                     case TypeDef(m, n, tp, rhs) =>
                       if (tp.nonEmpty) c.warning(tp.head.pos, "Higher kinded type support has not been tested.")
         
@@ -176,7 +189,7 @@ class Macros(val c: whitebox.Context) {
                       }
         
                       (n -> (variance, lo, hi)) -> (
-                        if (named(n)) tq"$n"
+                        if (expandedTParamName(n)) tq"$n"
                         else (lo,hi,variance) match {
                           case (Some(lo), _, Some(true)) => lo
                           case (None, _, Some(true)) => TypeTree(typeOf[Nothing])
@@ -188,11 +201,11 @@ class Macros(val c: whitebox.Context) {
                         })
                     
                   }).unzip match {
-                    case (vars, _) if initTargs.isDefined => vars.toMap -> initTargs.get
+                    case (vars, _) if explicitTArgs.isDefined => vars.toMap -> explicitTArgs.get
                     case (vars, targs) => vars.toMap -> targs
                   }
                   
-                  val typs1 = ts map {
+                  val typs = expandedTParams map {
                     case td @ TypeDef(m, n, tp, rhs) =>
                       variance_bounds get n map {
                         case (v,lo,hi) => TypeDef(mapFlags(m)(_ | (v match {
@@ -202,51 +215,91 @@ class Macros(val c: whitebox.Context) {
                         })), n, tp, TypeBoundsTree(lo getOrElse EmptyTree, hi getOrElse EmptyTree))
                       } getOrElse td
                   }
-                  typs1 -> targs
+                  typs -> inferredTArgs
                 }
                 
-                newParents ::= q"${tq"$name[..$targs]"}(...$initArgss)"
+                // TODO make sure no shadowing
+                // Type parameters of the parent that are not type parameters of the case are defined using a type alias
+                val substituteTypes = (baseTParams zip initTArgs) flatMap {
+                  case (td, _) if expandedTParamName(td.name) => None
+                  case (TypeDef(m, n, tp, _), rhs) => Some(
+                    /*if (m.hasFlag(CONTRAVARIANT))  q"private[this] type $n >: $rhs"
+                    else if (m.hasFlag(COVARIANT)) q"private[this] type $n <: $rhs"
+                    else*/      // ^ generates: Error: abstract member may not have private modifier;  does not make much sense anyway...
+                    q"private[this] type $n =  $rhs" )
+                }
                 
-                (typs1, newBody)
+                newParents ::= q"${tq"$baseName[..$initTArgs]"}(...$initArgss)"
+                
+                (modTParams, newBody ++ substituteTypes)  // Note: `substituteTypes ++ newBody` crashes the compiler as it expects some definitions to be up top
               }
               
-              val temp1 = Template(newParents, self, newBody.map {
+              def mkProperDef(originalTree: Tree, defName: TermName, defParamss: List[List[Tree]], defTyp: Option[Tree], body: Tree) = {
+                debug("Searching for abstract def",defName)
+                absDefs get defName map {
+                  case None => c.warning(originalTree.pos, s"Impossible to define overloaded abstract definition $defName."); originalTree
+                  case Some(d) => val (tp,vp,rt,isVal) = d match { case DefDef(m,n,tp,vp,rt,_) => (tp,vp,rt,false)  case ValDef(m,n,rt,_) => (Nil,Nil,rt,true) }
+                    // TODO handle TypedTree's  --  eg: f(x:Int): Int = x+1  -- ?
+                    val dp = defParamss map (_ map { case Ident(n: TermName) => n  case tr => c.abort(tr.pos, "Unexpected parameter shape: `"+showCode(tr)+s"` in $defName.") })
+                    if (vp.size != dp.size) c.abort(originalTree.pos, s"Parameter list number mismatch in  in $defName")
+                    vp zip dp foreach {
+                      case (vp, dp) =>
+                        if (vp.size != dp.size) c.abort(originalTree.pos, s"Parameter number mismatch: (${dp mkString ","}) should have ${vp.size} parameter(s) in $defName.")
+                        vp zip dp foreach { case (v, d) => if (v.name != d) c.abort(originalTree.pos, s"Argument name mismatch: '$d' should reflect '${v.name}' in $defName.") }
+                    }
+                    if (isVal) q"override val $defName: $rt = $body"
+                    else q"override def $defName[..$tp](...$vp): $rt = $body"
+                } getOrElse {
+                  if (doWarn) c.warning(originalTree.pos, s"Found what looks like a lightweight implementation syntax: `$defName(...) = ${showCode(body)}`," + //`${showCode(originalTree)}`," +
+                    s"but it correspond to no known method '$defName' in the parent class.")
+                  originalTree
+                }
+              }
+              
+              val newImpl = Template(newParents, self, newBody.map {
                 case ValDef(m, n, t, v) if m.hasFlag(PARAMACCESSOR) =>
                   ValDef(Modifiers(mkPublic(m.flags) | CASEACCESSOR, m.privateWithin, m.annotations), n, t, v)
+                  
+                case tr @ q"$rec = $body" =>
+                  rec match {
+                    case q"${n: TermName}(...$args)" => mkProperDef(tr, n, args, None, body)
+                    case _ => c.abort(rec.pos, "Invalid lightweight implementation syntax. Expected `name(...args) = body`.")
+                  }
+                  
                 case d => d
               })
               
-              //val isEnum = mods0.annotations collectFirst { case q"new enum(...$args)" => args }
-              
-              val mods1 = Modifiers(
-                mods0.flags
+              val newMods = Modifiers(
+                mods.flags
                   | CASE
                   | (if (caseParams.notFinal) NoFlags else FINAL),
-                mods0.privateWithin, mods0.annotations)
+                mods.privateWithin, mods.annotations)
               
-             if (isObject) ModuleDef(mods1, name0.toTermName, temp1)
-             else          ClassDef (mods1, name0,  typs1,    temp1)
+             if (isObject) ModuleDef(newMods, name.toTermName,  newImpl)
+             else          ClassDef (newMods, name, newTParams, newImpl)
           }
+          
           
           val obj = rest match {
             case ModuleDef(mods0, name0, Template(parents, self, body)) :: Nil =>
               ModuleDef(mods0, name0, Template(parents, self, extractedClasses ++ body))
-            case Nil => q"object ${name.toTermName} { ..${extractedClasses} }"
+            case Nil => q"object ${baseName.toTermName} { ..${extractedClasses} }"
           }
           
           val newMods = Modifiers(
             rmFlagsIn(
-              mods.flags
+              baseMods.flags
                 | (if (params.unsealed) NoFlags else SEALED)
                 | ABSTRACT, 
-              CASE | FINAL), mods.privateWithin, mods.annotations)
+              CASE | FINAL), baseMods.privateWithin, baseMods.annotations)
           
-          val cls = ClassDef(newMods, name, typs, Template(temp.parents, temp.self, otherDefs))
+          val cls = ClassDef(newMods, baseName, baseTParams, Template(baseImpl.parents, baseImpl.self, otherDefs))
           
           q"$cls; $obj"
       }
     }
     
+    //debug("Generated:",(result))
     debug("Generated:",showCode(result))
     result
   }
