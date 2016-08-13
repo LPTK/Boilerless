@@ -67,15 +67,15 @@ class Macros(val c: whitebox.Context) {
           }*/
           
           // Maps abstract definition names to the definitions themselves or None if they are overloaded
-          val absDefs = baseImpl.body flatMap {
-            case d @ DefDef(m, name, tparams, vparamss, tpt, rhs) if (m hasFlag ABSTRACT) || rhs.isEmpty => Some(name -> d)
-            case d @ ValDef(m, name, tpt, rhs) if (m hasFlag ABSTRACT) || rhs.isEmpty =>  Some(name -> d)
+          val baseDefs = baseImpl.body flatMap {
+            case d @ DefDef(m, name, tparams, vparamss, tpt, rhs) => Some(name -> d)
+            case d @ ValDef(m, name, tpt, rhs) =>  Some(name -> d)
             case _ => None
           } groupBy (_._1) map {
             case (name, (_, d) :: Nil) => name -> Some(d)
             case (name, _) => name -> None
           }
-          //debug("Found abstract defs: "+absDefs)
+          //debug("Found parent defs: "+baseDefs)
           
           
           def rmIgnore(m: Modifiers) = Modifiers(m.flags, m.privateWithin, m.annotations.indexWhere(isIgnore) match {
@@ -236,7 +236,7 @@ class Macros(val c: whitebox.Context) {
               
               def mkProperDef(originalTree: Tree, defName: TermName, defParamss: List[List[Tree]], defTyp: Option[Tree], body: Tree) = {
                 debug("Searching for abstract def",defName)
-                absDefs get defName map {
+                baseDefs get defName map {
                   case None => c.warning(originalTree.pos, s"Impossible to define overloaded abstract definition $defName."); originalTree
                   case Some(d) => val (tp,vp,rt,isVal) = d match { case DefDef(m,n,tp,vp,rt,_) => (tp,vp,rt,false)  case ValDef(m,n,rt,_) => (Nil,Nil,rt,true) }
                     // TODO handle TypedTree's  --  eg: f(x:Int): Int = x+1  -- ?
@@ -251,7 +251,7 @@ class Macros(val c: whitebox.Context) {
                     else q"override def $defName[..$tp](...$vp): $rt = $body"
                 } getOrElse {
                   if (doWarn) c.warning(originalTree.pos, s"Found what looks like a lightweight implementation syntax: `$defName(...) = ${showCode(body)}`," + //`${showCode(originalTree)}`," +
-                    s"but it correspond to no known method '$defName' in the parent class.")
+                    s"but it correspond to no any known method named '$defName' in the parent class.")
                   originalTree
                 }
               }

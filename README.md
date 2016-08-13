@@ -33,14 +33,14 @@ object EitherOrBoth {
   // Cases:
   case class First[+A](value: A) extends EitherOrBoth[A, Nothing] {
     private[this] type B = Nothing
-    def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(f(value))
+    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(f(value))
   }
   case class Second[+B](value: B) extends EitherOrBoth[Nothing, B] {
     private[this] type A = Nothing
-    def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(g(value))
+    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(g(value))
   }
   case class Both[+A, +B](fst: A, snd: B) extends EitherOrBoth[A, B] {
-    def fold[T](f: A => T, g: B => T): Either[T, (T,T)] =
+    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] =
       Right(f(fst), g(snd))
   }
 }
@@ -254,20 +254,6 @@ may be modified after the fact with:
 
  - `@concrete` to cancel an `abstract` modifier
 
-
-### Tips & Tricks
-
-You can mark a method `abstract` _and_ `@concrete` so that it can or can not be
-redefined in cases. For example:
-
-```scala
-@enum class Enum {
-  @concrete abstract def f = 0
-  object A { f = 1 }
-  object B
-}
-assert(Enum.A.f == 1 && Enum.B.f == 0)
-```
 
 
 

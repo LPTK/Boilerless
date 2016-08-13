@@ -70,11 +70,14 @@ class BasicTests extends FunSuite {
   test("Concrete Abstract Trick") {
     
     @enum class Enum {
-      @concrete abstract def f = 0
-      object A { f = 1 }
+      @concrete abstract def f = 0 // this is actually useless now
+      def g = "ko"
+      
+      object A { f = 1 ; g = "ok" }
       object B
     }
     assert(Enum.A.f == 1 && Enum.B.f == 0)
+    assert(Enum.A.g == "ok" && Enum.B.g == "ko")
     
   }
   
