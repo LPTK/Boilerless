@@ -46,8 +46,9 @@ object EitherOrBoth {
 }
 ```
 
-**Note:** Macro annotations are not _officially_ supported in Scala, and their syntax highlighting will be broken in most IDE's.
-However, Boilerless offers [alternatives](#ide-integration-and-def-macro-implementation) to circumvent these problems.
+**Note:** Macro annotations are not _officially_ supported in Scala.
+Syntax highlighting may be broken in some IDE's.
+However, Boilerless offers [alternatives](#ide-integration-and-file-generation-approach) to circumvent these problems.
 
 
 
@@ -161,14 +162,37 @@ object Level0 {
 ```
 
 
+## Using Boilerless
 
-## IDE Integration and Def Macro Implementation
+Boilerless has only been made to work on Scala 2.11 yet.
+More work is needed to port it to other versions.
 
-To mitigate IDE problems, you can make the companion object of the `@enum` class extend the class,
-so the IDE will see the inner classes.
+To use Boilerless, you need to clone the repo and publish Boilerless locally with `sbt boilerless/publishLocal `.
 
-Boilerless also provides a `@enumInFile(fileName, package)` macro that,
-instead of expanding into the class trees, will instead write the result to a new Scala file [1].
+Then, in your own project, enable the macro-paradise plugin and add the library dependency:
+
+```scala
+resolvers += Resolver.sonatypeRepo("releases")
+
+addCompilerPlugin("org.scalamacros" % "paradise" % paradiseVersion cross CrossVersion.full)
+
+libraryDependencies += "com.github.lptk" %% "boilerless" % boilerlessVersion
+```
+
+See [this example project](https://github.com/LPTK/Boilerless-Example).
+
+
+## IDE Integration and File-Generation Approach
+
+Some IDE's like Eclipse seem to support Boilerless remarkably well
+– most type errors point to the right thing, and jump-to-definition is often approximately right.
+
+Other IDE's like IntelliJ do not even try to understand macros.
+To mitigate some of the IDE problems, you can make the companion object of the `@enum` class extend the class,
+so the IDE will at least see the case classes.
+
+Boilerless also provides an `@enumInFile(fileName, package)` macro that,
+instead of expanding into the class trees, will write the result to a new Scala file [1].
 The new file will be placed in `$folderName/ClassName.scala`, its package will be `$package`,
 and imports found at macro call site will be placed at the top.
 
@@ -272,9 +296,9 @@ and not something like `extends my.package.Base[..](...)`.
 
 ### IDE support
 
-IDE's will likely not understand Boilerless' syntax and semantics,
-so it may be good to turn inspections off for the specific definition file.
-See also [this](#ide-integration-and-def-macro-implementation) to circumvent the problem.
+Some IDE's like IntelliJ will likely not understand Boilerless' syntax and semantics,
+so it may be good to turn inspections off for the specific definition files.
+See also [this](#ide-integration-and-file-generation-approach) to circumvent the problem.
 
 
 
