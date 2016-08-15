@@ -166,19 +166,19 @@ object Level0 {
 Boilerless has only been made to work on Scala 2.11 yet.
 More work is needed to port it to other versions.
 
-To use Boilerless, you need to clone the repo and publish Boilerless locally with `sbt boilerless/publishLocal `.
-
-Then, in your own project, enable the macro-paradise plugin and add the library dependency:
+To use Boilerless, enable the macro-paradise plugin and add the library dependency:
 
 ```scala
-resolvers += Resolver.sonatypeRepo("releases")
+resolvers += Resolver.sonatypeRepo("snapshots")
 
 addCompilerPlugin("org.scalamacros" % "paradise" % paradiseVersion cross CrossVersion.full)
 
 libraryDependencies += "com.github.lptk" %% "boilerless" % boilerlessVersion
 ```
 
-See [this example project](https://github.com/LPTK/Boilerless-Example).
+Where `paradiseVersion` is the version of Macro Paradise (for example `"2.1.0"`)
+and `boilerlessVersion` is the version of Boilerless (for example `"0.1-SNAPSHOT"`).
+See [this project](https://github.com/LPTK/Boilerless-Example) for an example.
 
 
 ## IDE Integration and File-Generation Approach
