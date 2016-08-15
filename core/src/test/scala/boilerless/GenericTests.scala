@@ -43,18 +43,23 @@ class GenericTests extends FunSuite {
   test("EitherOrBoth") {
     
     @enum class EitherOrBoth[+A,+B] {
-      def fold[T](f: A => T, g: B => T): Either[T, (T,T)]
-
+      def fold_old[T](f: A => T, g: B => T): Either[T, (T,T)]
+      def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T
+      
       // Cases:
-      class First[A](value: A)      {  fold(f,g) = Left( f(value)        )  }
-      class Second[B](value: B)     {  fold(f,g) = Left(         g(value))  }
-      class Both[_](fst: A, snd: B) {  fold(f,g) = Right(f(fst), g(snd)  )  }
+      class First[A](value: A)      {  fold_old(f,g) = Left( f(value)        );  fold(f,g)(m) = f(value)          }
+      class Second[B](value: B)     {  fold_old(f,g) = Left(         g(value));  fold(f,g)(m) = g(value)          }
+      class Both[_](fst: A, snd: B) {  fold_old(f,g) = Right(f(fst), g(snd)  );  fold(f,g)(m) = m(f(fst),g(snd))  }
     }
     import EitherOrBoth._
     
-    assert(First(42).fold(identity, _ => ???) == Left(42))
-    assert(Second("ok").fold(_ => ???, identity) == Left("ok"))
-    assert(Both(42, "ok").fold(identity, identity) == Right(42, "ok"))
+    assert(First(42).fold_old(identity, _ => ???) == Left(42))
+    assert(Second("ok").fold_old(_ => ???, identity) == Left("ok"))
+    assert(Both(42, "ok").fold_old(identity, identity) == Right(42, "ok"))
+    
+    assert(First(42).fold(identity, _ => ???)((_,_) => ???) == 42)
+    assert(Second("ok").fold(_ => ???, identity)((_,_) => ???) == "ok")
+    assert(Both(42, "ok").fold(identity, _.size)(_ + _) == 44)
     
   }
   

@@ -12,12 +12,12 @@ The precise rules used to expand it are explained further below.
 
 ```scala
 @enum class EitherOrBoth[+A,+B] {
-  def fold[T](f: A => T, g: B => T): Either[T, (T,T)]
+  def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T
   
   // Cases:
-  class First [A](value: A)     {  fold(f,g) = Left(f(value))         }
-  class Second[B](value: B)     {  fold(f,g) = Left(g(value))         }
-  class Both[_](fst: A, snd: B) {  fold(f,g) = Right(f(fst), g(snd))  }
+  class First [A](value: A)     { fold(f,g)(m) = f(value)         }
+  class Second[B](value: B)     { fold(f,g)(m) = g(value)         }
+  class Both[_](fst: A, snd: B) { fold(f,g)(m) = m(f(fst),g(snd)) }
 }
 ```
 
@@ -27,21 +27,20 @@ The code above will generate the equivalent of:
 
 ```scala
 sealed abstract class EitherOrBoth[+A, +B] {
-  def fold[T](f: A => T, g: B => T): Either[T, (T,T)]
+  def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T
 }
 object EitherOrBoth {
   // Cases:
   case class First[+A](value: A) extends EitherOrBoth[A, Nothing] {
     private[this] type B = Nothing
-    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(f(value))
+    override def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T = f(value)
   }
   case class Second[+B](value: B) extends EitherOrBoth[Nothing, B] {
     private[this] type A = Nothing
-    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] = Left(g(value))
+    override def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T = g(value)
   }
   case class Both[+A, +B](fst: A, snd: B) extends EitherOrBoth[A, B] {
-    override def fold[T](f: A => T, g: B => T): Either[T, (T,T)] =
-      Right(f(fst), g(snd))
+    override def fold[T](f: A => T, g: B => T)(m: (T,T) => T): T = m(f(fst),g(snd))
   }
 }
 ```
